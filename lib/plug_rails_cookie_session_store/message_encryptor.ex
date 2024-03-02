@@ -59,7 +59,7 @@ defmodule PlugRailsCookieSessionStore.MessageEncryptor do
       when is_binary(message) and is_binary(secret) do
     iv = :crypto.strong_rand_bytes(16)
 
-    {message, auth_tag} = encrypt({"", pad_message(message), 16}, cipher, secret, iv)
+    {message, auth_tag} = encrypt_aead(pad_message(message), cipher, secret, iv)
     message
     |> Base.encode64()
     |> Kernel.<>("--#{Base.encode64(iv)}")
@@ -72,7 +72,7 @@ defmodule PlugRailsCookieSessionStore.MessageEncryptor do
   def authenticate_and_decrypt(encrypted, secret, cipher \\ :aes_gcm)
       when is_binary(encrypted) and is_binary(secret) do
     [encrypted, iv, auth_tag] = String.split(encrypted, "--") |> Enum.map(&Base.decode64!/1)
-    result = {"", encrypted, auth_tag} |> decrypt(cipher, secret, iv)
+    result = decrypt_aead(encrypted, cipher, secret, iv, auth_tag)
     {:ok, result}
   end
 
@@ -80,8 +80,16 @@ defmodule PlugRailsCookieSessionStore.MessageEncryptor do
     :crypto.crypto_one_time(cipher, trim_secret(secret), iv, message, true)
   end
 
+  defp encrypt_aead(message, cipher, secret, iv) do
+    :crypto.crypto_one_time_aead(cipher, trim_secret(secret), iv, message, "", true)
+  end
+
   defp decrypt(encrypted, cipher, secret, iv) do
     :crypto.crypto_one_time(cipher, trim_secret(secret), iv, encrypted, false)
+  end
+
+  defp decrypt_aead(encrypted, cipher, secret, iv, auth_tag) do
+    :crypto.crypto_one_time_aead(cipher, trim_secret(secret), iv, encrypted, "", auth_tag, false)
   end
 
   defp pad_message(msg) do
