@@ -91,7 +91,7 @@ defmodule PlugRailsCookieSessionStore do
     key_opts = opts.key_opts
     cookie = cookie |> URI.decode_www_form()
 
-    if opts.use_authenticated_encryption do
+    if opts.use_authenticated_encryption || String.split(cookie, "--") |> length() == 3 do
       MessageEncryptor.authenticate_and_decrypt(
         cookie,
         derive(conn, opts.authenticated_encryption_salt, key_opts |> Keyword.put(:digest, :sha))
@@ -188,7 +188,7 @@ defmodule PlugRailsCookieSessionStore do
   end
 
   defp parse_salts(false, opts) do
-    {nil, check_encryption_salt(opts), check_signing_salt(opts)}
+    {check_authenticated_encryption_salt(opts), check_encryption_salt(opts), check_signing_salt(opts)}
   end
 
   defp check_authenticated_encryption_salt(opts) do
