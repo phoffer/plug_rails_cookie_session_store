@@ -23,6 +23,8 @@ defmodule PlugRailsCookieSessionStore do
     `:authenticated_encryption_salt` is required. If false, `:encryption_salt` and `:signing_salt`
     are required;
 
+  * `:use_cookies_with_metadata` - specify whether Rails style metadata is used
+
   * `:authenticated_encryption_salt` - a salt used with `conn.secret_key_base` to generate
     a key for AEAD encrypting/decrypting a cookie;
 
@@ -69,6 +71,7 @@ defmodule PlugRailsCookieSessionStore do
 
   def init(opts) do
     {use_authenticated_encryption, {authenticated_encryption_salt, encryption_salt, signing_salt}} = parse_salts(opts)
+    use_cookies_with_metadata = Keyword.get(opts, :use_cookies_with_metadata, false)
 
     iterations = Keyword.get(opts, :key_iterations, 1000)
     length = Keyword.get(opts, :key_length, 32)
@@ -79,6 +82,7 @@ defmodule PlugRailsCookieSessionStore do
 
     %{
       use_authenticated_encryption: use_authenticated_encryption,
+      use_cookies_with_metadata: use_cookies_with_metadata,
       authenticated_encryption_salt: authenticated_encryption_salt,
       encryption_salt: encryption_salt,
       signing_salt: signing_salt,
@@ -137,6 +141,18 @@ defmodule PlugRailsCookieSessionStore do
     :ok
   end
 
+  defp encode_with_metadata(term, serializer, true) do
+    %{
+       "_rails" => %{
+         "exp" => nil,
+         "message" => Base64.encode(term),
+         "pur" => "cookie._cookies_session"
+       }
+     }
+  end
+
+  defp encode_with_metadata(term, serializer, false), do: term
+
   defp encode(term, :external_term_format), do: :erlang.term_to_binary(term)
 
   defp encode(term, serializer) do
@@ -150,12 +166,20 @@ defmodule PlugRailsCookieSessionStore do
 
   defp decode({:ok, binary}, serializer) do
     case serializer.decode(binary) do
-      {:ok, term} -> {nil, term}
+      {:ok, term} -> decode_from_metadata(term, serializer)
       _ -> {nil, %{}}
     end
   end
 
   defp decode(:error, _serializer), do: {nil, %{}}
+
+  defp decode_from_metadata(%{"_rails" => %{"message" => message}}, serializer) do
+    message
+    |> Base.decode64!()
+    |> serializer.decode()
+  end
+
+  defp decode_from_metadata(json, serializer), do: json
 
   defp derive(conn, key, key_opts) when is_binary(key) do
     conn.secret_key_base
